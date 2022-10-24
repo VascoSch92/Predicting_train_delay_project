@@ -11,7 +11,7 @@ processes it.
 # Packages and modules
 import requests
 import calendar
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 
 
@@ -69,6 +69,21 @@ def download_and_save(url, name_download):
     response = requests.get(url)
     open(name_download + ".csv", "wb").write(response.content)
 
+def translation(data):
+    """
+    This method translate the columns which we will use in the model from german to english
+    :param data: dataframe downloaded in german language
+    :return data: dataframe translated in english
+    """
+
+    data.rename(columns={'Betriebstag': 'Day of operation',
+                         'Haltestellen Name': 'Stop name',
+                         'Abfahrtszeit': 'Departure time',
+                         'Ab Prognose': 'Departure forecast',
+                         }, inplace=True)
+
+    return data
+
 def selecting_and_cleaning_data(imported_data):
     """
     This method takes as input the raw data imported from the csv file and select the interesting columns for the
@@ -77,12 +92,9 @@ def selecting_and_cleaning_data(imported_data):
     :return data: DataFrame
     """
 
-    # Selects columns to be used in the model's training
-    data = imported_data.loc[:,['Day of operation', 'Linie', 'Stop name', 'Departure time', 'Departure forecast']]
-
     # Drops rows with NaN values. If a row contains a NaN values, it means that the train is canceled. Therefore,
     # there is no delay ;)
-    data = data.dropna()
+    data = imported_data.dropna()
 
     # Renames index
     data.index = pd.RangeIndex(len(data.index))
@@ -124,20 +136,21 @@ def selecting_and_cleaning_data(imported_data):
 # Parameters to download the data
 yesterday = date.today() - timedelta(days=1)
 yesterday_date = yesterday.strftime('%d.%m.%Y')
-url = "https://data.sbb.ch/explore/dataset/actual-data-sbb-previous-day/download/?format=csv&timezone=Europe/Berlin&lang=en&use_labels_for_header=true&csv_separator=%3B"
+url = "https://data.sbb.ch/explore/dataset/ist-daten-sbb/download/?format=csv&timezone=Europe/Berlin&lang=de&use_labels_for_header=true&csv_separator=%3B"
 
 #Download the data from data.SBB.ch website and saves it on our machine
 download_and_save(url, yesterday_date)
 
-# Imports the whole data from csv file
-imported_data = pd.read_csv('ist-daten-sbb.csv', ';')
+# Imports the interesting data from csv file
+imported_data = pd.read_csv(f"{yesterday_date}.csv",
+                            delimiter=';',
+                            usecols=['Betriebstag', 'Linie', 'Haltestellen Name', 'Abfahrtszeit', 'Ab Prognose'])
+
+# Translation from German to English
+imported_data = translation(imported_data)
 
 # Cleans imported_data
 data = selecting_and_cleaning_data(imported_data)
 
-# Adds new data to the existing one
-train_delay_data = pd.read_csv('/home/camilla/PycharmProjects/pythonProject/train_delay_data.csv', index_col=0)
-train_delay_data = pd.concat([train_delay_data,data], ignore_index=True)
-
 # Saves data in a .csv file
-data.to_csv( '/home/camilla/PycharmProjects/pythonProject/train_delay_data.csv')
+data.to_csv( f"/home/camilla/PycharmProjects/pythonProject/data/train_delay_data_{yesterday_date}.csv")
