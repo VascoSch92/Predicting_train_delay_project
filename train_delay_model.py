@@ -9,136 +9,147 @@ departure time of a train and predict its punctuality. This script contains the 
 """
 
 # Packages and modules
-import pandas as pd
 import numpy as np
-import tensorflow as tf
-import matplotlib.image as mpimg
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
+import pandas as pd
+
+import os
+import torch
+from torch import nn
+import pytorch_lightning as pl
+from torch.utils.data import DataLoader, Dataset, random_split
+from torchvision import datasets, transforms
+
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MaxAbsScaler
 
+
 def preprocessing_data(data, list_columns):
-  """
-  The method preprocesses the data before the model training.
-  :param data: DataFrame
-  :param list_columns: list of selected columns in data
-  :return data: np.array
-  """
-
-  # Scaler for preprocessing
-  scaler = MaxAbsScaler()
-
-  # Preprocessing selected columns in the DataFrame
-  for column in list_columns:
-    data[column] = scaler.fit_transform(data[column].values.reshape(-1,1))
-
-
-  return data
-
-def creation_train_and_val_sets(data, split_size):
     """
-    The method takes the raw data and proceeds to split it according to the parameter split_size into
-    the train and validation set.
-    :param data: np.array
-    :param split_size: float between 0 and 1
-    :return X_train, X_val, Y_train, Y_val: np.arrays
+    The method preprocesses the data before the model training.
+    :param data: DataFrame
+    :param list_columns: list of selected columns in data
+    :return data: np.array
     """
 
-    # Parameters for the split of the data set
-    n_total = len(data)
-    n_split = int(n_total * split_size)
+    # Scaler for preprocessing
+    scaler = MaxAbsScaler()
 
-    # Prints the size of the dataset and the split parameter
-    print(f"The data set contains {n_total} training examples.")
-    print(f"The rate decided for the split of the data set into training set and validation set is {split_size}.")
+    # Preprocessing selected columns in the DataFrame
+    for column in list_columns:
+        data[column] = scaler.fit_transform(data[column].values.reshape(-1, 1))
 
-    # Randomizing the data
-    np.random.shuffle(data)
+    return data
 
-    # Splits data into train and validation set
-    X_train = np.array([vector[:-1] for vector in data[: n_split]])
-    X_val = np.array([vector[:-1] for vector in data[n_split:]])
 
-    Y_train = np.array([vector[-1] for vector in data[: n_split]])
-    Y_val = np.array([vector[-1] for vector in data[n_split:]])
+class train_delay_model(pl.LightningModule):
 
-    # Prints the number of labeled examples of the training and validation set
-    print("Therefore, there are")
-    print(f"- {len(X_train)} labeled examples in the training set.")
-    print(f"- {len(X_val)} labeled examples in the validation set. \n")
+    def __init__(self):
+        super().__init__()
 
-    return X_train, Y_train, X_val, Y_val
+        self.layer_1 = torch.nn.Linear(4, 10)
+        self.layer_2 = torch.nn.Linear(10, 10)
+        self.layer_3 = torch.nn.Linear(10, 10)
+        self.layer_4 = torch.nn.Linear(10, 1)
 
-def model_delay_trains(X_train, Y_train, X_val, Y_val, epochs):    
-    """
-    The method defines the architecture of the model.
-    :return history: list
-    """
+    def forward(self, x):
+        batch_size, input_dim = x.size()
 
-    # Defines a sequential NN
-    model = tf.keras.Sequential([
-        
-        # Input layer
-        tf.keras.layers.Dense(units=4, input_dim=4),
+        # (b, 4)
+        x = x.view(batch_size, input_dim)
 
-        # Hidden layers
-        tf.keras.layers.Dense(units=10, activation='relu'),
-        tf.keras.layers.Dropout(0.2),
+        # layer 1 (b, 4) -> (b, 10)
+        x = self.layer_1(x)
+        x = torch.relu(x)
 
-        tf.keras.layers.Dense(units=10, activation = 'relu'),
-        tf.keras.layers.Dropout(0.2),
+        # layer 2 (b, 10) -> (b, 10)
+        x = self.layer_2(x)
+        x = torch.relu(x)
 
-        tf.keras.layers.Dense(units=10, activation = 'relu'),
-        tf.keras.layers.Dropout(0.2),
+        # layer 3 (b, 10) -> (b, 10)
+        x = self.layer_3(x)
+        x = torch.relu(x)
 
-        # Output layer
-        tf.keras.layers.Dense(units=1, activation='linear')
-    ])
+        # layer 4 (b, 1) -> (b, 1)
+        x = self.layer_4(x)
 
-    # Prints summary of the model
-    model.summary()
+        return x
 
-    # Compiles the model
-    model.compile(optimizer='adam', loss='mae')
+    def mean_absolute_error(self, logits, target):
+        loss = torch.nn.L1Loss()
+        return loss(logits, target)
 
-    # Fits the model into the training set
-    history = model.fit(X_train, Y_train, epochs=epochs, verbose=1, validation_data=(X_val, Y_val))
+    def training_step(self, train_batch, batch_idx):
+        x, y = train_batch
+        y = y.unsqueeze(1)
+        logits = self.forward(x)
+        loss = self.mean_absolute_error(logits, y)
+        self.log('train_loss', loss)
+        return loss
 
-    return history
+    def validation_step(self, val_batch, batch_idx):
+        x, y = val_batch
+        y = y.unsqueeze(1)
+        logits = self.forward(x)
+        loss = self.mean_absolute_error(logits, y)
+        self.log('val_loss', loss)
 
-print("=================================================================")
-print("                     TRAIN DELAY PREDICTION                      ")
-print("=================================================================")
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        return optimizer
 
-# Imports the data from a csv file 
-data = pd.read_csv('/content/train_delay_data.csv', ',', index_col=0)
 
-print("                      --- DATA INFORMATION ---                     ")
+class CSV_Dataset(Dataset):
 
-# Preprocessing the data
-list_columns = ['Day of operation', 'Linie', 'Stop name', 'Departure time']
-data = preprocessing_data(data, list_columns)
+    def __init__(self, file_name):
+        df = pd.read_csv(file_name)
+        x = df.iloc[:, 1:5].values
+        y = df.iloc[:, 5].values
 
-# Splitting the data into training and validation set
-split_size = 0.8
-X_train, Y_train, X_val, Y_val = creation_train_and_val_sets(data.to_numpy(), split_size)
+        scaler = MaxAbsScaler()
+        x = scaler.fit_transform(x)
 
-print("                      --- MODEL TRAINING ---")
+        self.x = torch.tensor(x, device=device, dtype=torch.float32)
+        self.y = torch.tensor(y)
 
-# Defines and trains the model
-epochs = 100
-history = model_delay_trains(X_train, Y_train, X_val, Y_val, epochs)
+    def __len__(self):
+        return len(self.y)
 
-loss = history.history['loss']
-val_loss = history.history['val_loss']
+    def __getitem__(self, idx):
+        return self.x[idx], self.y[idx]
 
-range_epochs = range(epochs)
-start = 10
+    # get indexes for train and test rows
+    def get_splits(self, split=0.33):
+        # determine sizes
+        test_size = round(split * len(self.x))
+        train_size = len(self.x) - test_size
+        # calculate the split
+        return random_split(self, [train_size, test_size])
 
-# Defines the graph of loss against epochs
-plt.plot(range_epochs[start:], loss[start:], 'g', label='Loss')
-plt.plot(range_epochs[start:], val_loss[start:], 'b', label='Val loss')
-plt.title('Training and validation loss')
-plt.xlabel('Epochs')
-plt.ylabel('Loss/Val Loss')
-plt.show()
+########################
+#   MAIN
+########################
+
+device = torch.device("mps")
+
+# Imports the data
+data = CSV_Dataset(f"/Users/argo/PycharmProjects/Train_Delay_Predicion/cleaned_data/train_delay_data_17.10.2022.csv")
+
+
+# Parameters
+test_size = 0.2
+batch_size = 64
+seed = 42
+
+# Splits the data into train set and validation set
+train_set, val_set = data.get_splits()
+
+# prepare data loaders
+train_dl = DataLoader(train_set, shuffle=True)
+val_dl = DataLoader(val_set, shuffle=False)
+
+# Imports model and train
+model = train_delay_model()
+
+training = pl.Trainer(max_epochs=5, accelerator="cpu", devices=1)
+
+training.fit(model, train_dl, val_dl)
