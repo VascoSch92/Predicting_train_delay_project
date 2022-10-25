@@ -2,10 +2,10 @@
 Created on Monday Sep. 12-2022.
 
 @author: Vasco Schiavo
-This script aims to take the raw data made available by the Swiss Federal Railways about the punctuality of trains and
-clean it. This data is used to train a train delay prediction model. The data about trains' punctuality is available
-daily on the website: data.sbb.ch. The script accesses this webpage, downloads the data in csv format, and then
-processes it.
+
+This script downloads the data made available by the Swiss Federal Railways about the punctuality of trains and cleans
+it. The cleaned data is used to train a train delay prediction model. The train punctuality data is available daily on
+the website: http//data.sbb.ch.
 """
 
 # Packages and modules
@@ -60,8 +60,8 @@ def download_and_save(url, name_download):
     """
     This method accesses to the web-site: https://data.sbb.ch
     and download the .csv file which contains the train delay of yesterday. This .csv file is saved with
-    name: yesterday_date.csv.
-    :param url: string representing the url to download the data
+    name: train_delay_data_yesterday_date.csv.
+    :param url: string representing the url to download the cleaned_data
     :param name_download: string representing the name to give to the downloaded file
     """
 
@@ -73,7 +73,7 @@ def translation(data):
     """
     This method translate the columns which we will use in the model from german to english
     :param data: dataframe downloaded in german language
-    :return data: dataframe translated in english
+    :return cleaned_data: dataframe translated in english
     """
 
     data.rename(columns={'Betriebstag': 'Day of operation',
@@ -87,9 +87,9 @@ def translation(data):
 def selecting_and_cleaning_data(imported_data):
     """
     This method takes as input the raw data imported from the csv file and select the interesting columns for the
-    project. After that, it cleans tha data erasing NaN values and rewriting some entries.
+    project. After that, it cleans them erasing NaN values and rewriting some entries.
     :param imported_data: DataFrame
-    :return data: DataFrame
+    :return cleaned_data: DataFrame
     """
 
     # Drops rows with NaN values. If a row contains a NaN values, it means that the train is canceled. Therefore,
@@ -102,7 +102,7 @@ def selecting_and_cleaning_data(imported_data):
     delay_list = list()
     stop_names_OPUIC = pd.read_csv('stop_names_OPUIC.csv', ',', index_col = 0)
 
-    # Cleans the data
+    # Cleans the cleaned_data
     for idx, row in data.iterrows():
 
         # Entry 'Day of operation' is converted in a number
@@ -126,7 +126,7 @@ def selecting_and_cleaning_data(imported_data):
     # Adds a column containing the delay in second
     data['Delay'] = delay_list
 
-    # Returns data without 'Departure forecast' column
+    # Returns cleaned_data without 'Departure forecast' column
     return data.loc[:,['Day of operation', 'Linie', 'Stop name', 'Departure time', 'Delay']]
 
 ########################
@@ -138,11 +138,11 @@ yesterday = date.today() - timedelta(days=1)
 yesterday_date = yesterday.strftime('%d.%m.%Y')
 url = "https://data.sbb.ch/explore/dataset/ist-daten-sbb/download/?format=csv&timezone=Europe/Berlin&lang=de&use_labels_for_header=true&csv_separator=%3B"
 
-#Download the data from data.SBB.ch website and saves it on our machine
-download_and_save(url, yesterday_date)
+# Downloads the raw data from data.SBB.ch and saves it in the raw_data folder
+download_and_save(url, f"/Users/argo/PycharmProjects/Train_Delay_Predicion/raw_data/{yesterday_date}")
 
-# Imports the interesting data from csv file
-imported_data = pd.read_csv(f"{yesterday_date}.csv",
+# Reads the raw data
+imported_data = pd.read_csv(f"/Users/argo/PycharmProjects/Train_Delay_Predicion/raw_data/{yesterday_date}.csv",
                             delimiter=';',
                             usecols=['Betriebstag', 'Linie', 'Haltestellen Name', 'Abfahrtszeit', 'Ab Prognose'])
 
@@ -152,5 +152,5 @@ imported_data = translation(imported_data)
 # Cleans imported_data
 data = selecting_and_cleaning_data(imported_data)
 
-# Saves data in a .csv file
-data.to_csv( f"/home/camilla/PycharmProjects/pythonProject/data/train_delay_data_{yesterday_date}.csv")
+# Saves cleaned_data as a CSV file in the cleaned_data folder
+data.to_csv( f"/Users/argo/PycharmProjects/Train_Delay_Predicion/cleaned_data/train_delay_data_{yesterday_date}.csv")
