@@ -17,9 +17,17 @@ import pandas as pd
 
 def time_in_seconds(time):
     """
-    The method implements the conversion of a time in seconds
-    :param time: string of the form 'HH:MM:SS', where H, M and S are digits
-    :return time_sec: integer representing the time in seconds
+    The method implements the conversion of a time in seconds.
+
+    Parameters
+    ----------
+    time: string
+        The string is of the form 'HH:MM:SS', where H, M and S are digits.
+        
+    Return
+    ------
+    time_sec: int
+        Integer representing the time in seconds.
     """
 
     time_sec = int(time[0:2])*3600 + int(time[3:5])*60 + int(time[6:8])
@@ -30,8 +38,16 @@ def date_to_nb(day_date):
     """
     The method assigns to every day of the week a number. If the date corresponds to a holiday, it assigns a special
     number.
-    :param day_date: string of the form AAAA-MM-DD, where A, M and D are integers.
-    :return: integer between 1 and 8.
+
+    Parameters
+    ----------
+    day_date: string
+        The string is of the form AAAA-MM-DD, where A, M and D are integers.
+        
+    Return
+    ------
+    dict_day_nb["Holiday"]: int
+        Integer between 1 and 8
     """
 
     # Dictionary describing the map between days and integers
@@ -58,11 +74,15 @@ def date_to_nb(day_date):
 
 def download_and_save(url, name_download):
     """
-    This method accesses to the web-site: https://data.sbb.ch
-    and download the .csv file which contains the train delay of yesterday. This .csv file is saved with
-    name: train_delay_data_yesterday_date.csv.
-    :param url: string representing the url to download the cleaned_data
-    :param name_download: string representing the name to give to the downloaded file
+    This method accesses to the web-site: https://data.sbb.ch and download the .csv file which contains the train
+    delay of yesterday. This .csv file is saved with name: train_delay_data_yesterday_date.csv.
+
+    Parameters
+    ----------
+    url: string
+        String representin the url to download the cleaned_data.
+    name_download: string
+        String representing the name to give to the downloaded file.
     """
 
     # Download
@@ -71,9 +91,17 @@ def download_and_save(url, name_download):
 
 def translation(data):
     """
-    This method translate the columns which we will use in the model from german to english
-    :param data: dataframe downloaded in german language
-    :return cleaned_data: dataframe translated in english
+    This method translate the columns which we will use in the model from german to english.
+
+    Parameters
+    ----------
+    data: dataframe
+        Dataframe downloaded in german language.
+
+    Return
+    ------
+    cleaned_data: dataframe
+        Dataframe translated to english.
     """
 
     data.rename(columns={'Betriebstag': 'Day of operation',
@@ -88,8 +116,14 @@ def selecting_and_cleaning_data(imported_data):
     """
     This method takes as input the raw data imported from the csv file and select the interesting columns for the
     project. After that, it cleans them erasing NaN values and rewriting some entries.
-    :param imported_data: DataFrame
-    :return cleaned_data: DataFrame
+
+    Parameters
+    ----------
+    imported_data: Dataframe
+    
+    Return
+    ------
+    cleaned_data: Dataframe
     """
 
     # Drops rows with NaN values. If a row contains a NaN values, it means that the train is canceled. Therefore,
