@@ -105,6 +105,7 @@ class TabularDataset(Dataset):
         
         # calculate the split
         return random_split(self, [train_size, test_size])
+      
 class NNModel(pl.LightningModule):
 
     def __init__(self, emb_dims, no_of_cont, lin_layer_sizes, output_size, emb_dropout, lin_layer_dropouts):
@@ -274,26 +275,49 @@ def preprocessing_data(data, cat_data, cont_data, output_data):
     
     return data
 
-def preprocessing_data_inverse(data, cont_data, maximum, minimum):
+def preprocessing_data_inverse(data, cat_data, cont_data, output_data):
     """
     Inverse the continuous data preprocessed with MinMaxScaler. 
     
     Parameters
     ----------
     data: DataFrame
-        All data
+        All the data.
+    cat_data: list of strings
+        List containing the names of the categorical columns to inverse.
     cont_data: list of strings
-        List containing the names of the continuous columns to inverse
-    maximum: int
-    minimum: int
+        List containing the names of the continuous columns to inverse. 
     
     Return
     ------
     data: DataFrame
         Dataframe with the continuous columns inverse preprocessed.
     """
+    
+    # Inversion of continuous data
     for col in cont_data: 
+        
+        # Retrieving max and min for the respective column
+        maximum = params["preprocessing"]["MinMaxScaler"][col]["max"]
+        minimum = params["preprocessing"]["MinMaxScaler"][col]["min"]
+        
+        # Inversion of the column
         data[col] = data[col].apply(lambda x: x*(maximum-minimum)+minimum)
+        
+    # Inversion of categorical data
+    for col in cat_data:
+        
+        # Inversion of the dictionary with the labels
+        inv_dict = dict(map(reversed, params["preprocessing"]["LabelEncoder"].items()))
+        
+        # Inversion of the column
+        data[col] = data[col].apply(lambda x: inv_dict[x])
+    
+    # Inversion of the output data
+    maximum = params["preprocessing"]["MinMaxScaler"][output_data]["max"]
+    minimum = params["preprocessing"]["MinMaxScaler"][output_data]["min"]
+    
+    data[output_data] = data[output_data].apply(lambda x: x*(maximum-minimum)+minimum)
     
     return data
 
@@ -379,7 +403,4 @@ predicted_delay_list = [np.array(x)[0][0] for x in predicted_delay]
 test_data['Predicted delay'] = predicted_delay_list
 
 # Inverse preprocessing of the data
-test_data = preprocessing_data_inverse(data=test_data, 
-                                       cols=["Delay", "Predicted delay"],
-                                       minimum=params["preprocessing"]["MinMaxScaler"]["Delay"]["min"],
-                                       maximum=params["preprocessing"]["MinMaxScaler"]["Delay"]["max"])
+test_data = preprocessing_data_inverse(test_data, categorical_features, cont_features, output_feature)
