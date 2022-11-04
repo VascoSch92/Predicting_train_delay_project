@@ -19,9 +19,26 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
-wandb_logger = WandbLogger(project="my-test-project")
-
 from sklearn.preprocessing import LabelEncoder
+
+wandb_logger = WandbLogger(project="Train delay prediction")
+
+# Dictionary containig all parameters used. The script will compute the parameters set to None
+# However, we can also set these parameters manually if wished
+params = {"data": {"cat_data": ["Day of operation", "Linie", "Stop name"], 
+                    "cont_data": ["Departure time"], 
+                    "output": "Delay"},   
+          "preprocessing": {"MinMaxScaler": {"Departure time": {"min": 0, "max": 86400},
+                                             "Delay": {"min": 0,"max": 1200}},
+                            "LabelEncoder": {"Day of operation": None,
+                                             "Linie": None, 
+                                             "Stop name": None}},
+          "model": {"emb_dims": None, 
+                    "lin_layer_sizes": [5, 5, 5],
+                    "emb_dropout": 0.04,
+                    "lin_layer_dropouts": [0.01, 0.01, 0.01]},
+          "epochs": 5  
+}
 
 class TabularDataset(Dataset):
     
@@ -202,20 +219,96 @@ class MyPrintingCallback(Callback):
 
     def on_train_end(self, trainer, pl_module):
         print("Training is ending")
+ 
+def preprocessing_data(data, cat_data, cont_data, output_data):
+    """
+    Preprocessing the data.
+    
+    Parameters
+    ----------
+    data: DataFrame
+        Data to preprocess
+    cat_data: list of strings
+        List containting the names of the categorical columns
+    cont_data: list of strings
+        List containing the names of the continuous columns
+    
+    Return
+    ------
+    data: DataFrame
+        Preprocessed data.
+    """
+    
+    # Preprocessing continuous data using MinMaxScaler
+    for cont_col in cont_data: 
         
+        # Retrieving the values from params dictionary
+        minimum = params["preprocessing"]["MinMaxScaler"][cont_col]["min"]
+        maximum = params["preprocessing"]["MinMaxScaler"][cont_col]["max"]
+            
+        data[cont_data] = data[cont_data].apply(lambda x: (x-minimum)/(maximum-minimum))
+
+    # Preprocessing categorical data
+    
+    # If is the first time, it creates the dictionary labels and stores it in params
+    if params["preprocessing"]["LabelEncoder"]["Day of operation"] == None:
+        
+        for cat_col in cat_data:
+            le = LabelEncoder()
+            ids = le.fit_transform(data[cat_col])
+            mapping = dict(zip(le.classes_, range(len(le.classes_))))
+            params["preprocessing"]["LabelEncoder"][cat_col] = mapping
+            
+    # Labelling the categorical data
+    for cat_col in cat_data:
+        data[cat_col] = data[cat_col].apply(lambda x: 
+                            params["preprocessing"]["LabelEncoder"][cat_col][x])
+        
+        
+    # Preprocessing output data using MinMaxScaler
+    # Retrieving the values from params dictionary
+    min_output = params["preprocessing"]["MinMaxScaler"][output_data]["min"]
+    max_output = params["preprocessing"]["MinMaxScaler"][output_data]["max"]
+            
+    data[output_data] = data[output_data].apply(lambda x: (x-min_output)/(max_output-min_output))
+    
+    return data
+
+def preprocessing_data_inverse(data, cont_data, maximum, minimum):
+    """
+    Inverse the continuous data preprocessed with MinMaxScaler. 
+    
+    Parameters
+    ----------
+    data: DataFrame
+        All data
+    cont_data: list of strings
+        List containing the names of the continuous columns to inverse
+    maximum: int
+    minimum: int
+    
+    Return
+    ------
+    data: DataFrame
+        Dataframe with the continuous columns inverse preprocessed.
+    """
+    for col in cont_data: 
+        data[col] = data[col].apply(lambda x: x*(maximum-minimum)+minimum)
+    
+    return data
+
 # Reads the data
-data = pd.read_csv("train_delay_data.csv", index_col=0)
+data = pd.read_csv("train_data.csv", index_col=0)
 
-# Select the categorical features and the target/output feature
-categorical_features = ["Day of operation", "Linie", "Stop name"]
-output_feature = "Delay"
+# Selects the categorical and continuous features and the target/output feature
+categorical_features = params["data"]["cat_data"]
+cont_features = params["data"]["cont_data"]
+output_feature = params["data"]["output"]
 no_output_feature = 1
+no_of_cont_features = len(cont_features)
 
-# Label encoding categorical features
-label_encoders = {}
-for cat_col in categorical_features:
-    label_encoders[cat_col] = LabelEncoder()
-    data[cat_col] = label_encoders[cat_col].fit_transform(data[cat_col])
+# Preprocesses the data
+data = preprocessing_data(data, categorical_features, cont_features, output_feature)
 
 # Creates dataset
 dataset = TabularDataset(data=data, cat_cols=categorical_features, output_col=output_feature)
@@ -226,45 +319,67 @@ train_set, val_set = dataset.get_splits(split=split)
 
 # Creates dataloaders
 batch_size = 64
-train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4, persistent_workers=True)
-val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4, persistent_workers=True)
+train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2, persistent_workers=True)
+val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=2, persistent_workers=True)
 
-# Computes the uniques valuse for every categorical features
-cat_dims = [int(data[col].nunique())+1 for col in categorical_features]
+# If the embedding dimensions are not given, it computes it automatically
+if params["model"]["emb_dims"]==None:
+    # Computes the uniques valuse for every categorical features
+    cat_dims = [int(data[col].nunique())+1 for col in categorical_features]
 
-# Creates emb_dims parameter. We can also do this by hand. ATTENTION: x > y mandatory!!!
-emb_dims = [(x, int(x**(0.40))) for x in cat_dims]
-
-# Control on the choice of the embedding dimensions
-if sum([x <= y for x,y in emb_dims])>0: print("==> Warning! There is an x <= y")
-
-# Number of continuous features
-no_of_cont = len(data.columns) - len(categorical_features) - no_output_feature
+    # Creates emb_dims parameter. We can also do this by hand. ATTENTION: x > y mandatory!!!
+    params["model"]["emb_dims"] = [(x, int(x**(0.40))) for x in cat_dims]
 
 # Defines the model
 model = NNModel(
-    emb_dims, 
-    no_of_cont=no_of_cont, 
-    lin_layer_sizes=[5, 5], 
+    emb_dims=params["model"]["emb_dims"], 
+    no_of_cont=no_of_cont_features, 
+    lin_layer_sizes=params["model"]["lin_layer_sizes"], 
     output_size=no_output_feature, 
-    emb_dropout=0.04, 
-    lin_layer_dropouts=[0.01,0.01]
+    emb_dropout=params["model"]["emb_dropout"], 
+    lin_layer_dropouts=params["model"]["lin_layer_dropouts"]
     )
 
 # Define an early stop
 early_stop_callback = EarlyStopping(
     monitor="val_loss", 
     min_delta=3, 
-    patience=3, 
+    patience=5, 
     verbose=True, 
     mode="max"
 )
 
 # Training the model
 training = pl.Trainer(
-    max_epochs= 1, 
+    max_epochs= params["epochs"], 
     callbacks=[MyPrintingCallback(), early_stop_callback],
-    logger=wandb_logger
+    logger=wandb_logger,
     )
 
 training.fit(model, train_dl, val_dl)
+
+# We use the model to make prediction on the test data. Aftert that we had the prediction on the test data DataFrame. Then, we will analyze it
+# to improve the model
+
+# Reads the test data
+test_data = pd.read_csv("test_data.csv", index_col=0)
+
+# Preprocesses the test_data
+test_data = preprocessing_data(test_data, categorical_features, cont_features, output_feature)
+
+# Creates dataset and dataloader
+test_dataset = TabularDataset(data=test_data, cat_cols=categorical_features, output_col=output_feature)
+test_dl = DataLoader(test_dataset, shuffle=False, num_workers=2, persistent_workers=True)
+
+# Makes predictions
+predicted_delay = training.predict(model, test_dl)
+
+# Converts tensor to list and add it to the test_data DataFrame
+predicted_delay_list = [np.array(x)[0][0] for x in predicted_delay]
+test_data['Predicted delay'] = predicted_delay_list
+
+# Inverse preprocessing of the data
+test_data = preprocessing_data_inverse(data=test_data, 
+                                       cols=["Delay", "Predicted delay"],
+                                       minimum=params["preprocessing"]["MinMaxScaler"]["Delay"]["min"],
+                                       maximum=params["preprocessing"]["MinMaxScaler"]["Delay"]["max"])
