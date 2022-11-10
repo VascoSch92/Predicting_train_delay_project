@@ -321,86 +321,92 @@ def preprocessing_data_inverse(data, cat_data, cont_data, output_data):
     
     return data
 
-# Reads the data
-data = pd.read_csv("train_data.csv", index_col=0)
+def main():
+  
+  # Reads the data
+  data = pd.read_csv("train_data.csv", index_col=0)
 
-# Selects the categorical and continuous features and the target/output feature
-categorical_features = params["data"]["cat_data"]
-cont_features = params["data"]["cont_data"]
-output_feature = params["data"]["output"]
-no_output_feature = 1
-no_of_cont_features = len(cont_features)
+  # Selects the categorical and continuous features and the target/output feature
+  categorical_features = params["data"]["cat_data"]
+  cont_features = params["data"]["cont_data"]
+  output_feature = params["data"]["output"]
+  no_output_feature = 1
+  no_of_cont_features = len(cont_features)
 
-# Preprocesses the data
-data = preprocessing_data(data, categorical_features, cont_features, output_feature)
+  # Preprocesses the data
+  data = preprocessing_data(data, categorical_features, cont_features, output_feature)
 
-# Creates dataset
-dataset = TabularDataset(data=data, cat_cols=categorical_features, output_col=output_feature)
+  # Creates dataset
+  dataset = TabularDataset(data=data, cat_cols=categorical_features, output_col=output_feature)
 
-# Splits the data into train and validation set
-split = 0.2
-train_set, val_set = dataset.get_splits(split=split)
+  # Splits the data into train and validation set
+  split = 0.2
+  train_set, val_set = dataset.get_splits(split=split)
 
-# Creates dataloaders
-batch_size = 64
-train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2, persistent_workers=True)
-val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=2, persistent_workers=True)
+  # Creates dataloaders
+  batch_size = 64
+  train_dl = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2, persistent_workers=True)
+  val_dl = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=2, persistent_workers=True)
 
-# If the embedding dimensions are not given, it computes it automatically
-if params["model"]["emb_dims"]==None:
+  # If the embedding dimensions are not given, it computes it automatically
+  if params["model"]["emb_dims"]==None:
     # Computes the uniques valuse for every categorical features
     cat_dims = [int(data[col].nunique())+1 for col in categorical_features]
 
     # Creates emb_dims parameter. We can also do this by hand. ATTENTION: x > y mandatory!!!
     params["model"]["emb_dims"] = [(x, int(x**(0.40))) for x in cat_dims]
 
-# Defines the model
-model = NNModel(
+  # Defines the model
+  model = NNModel(
     emb_dims=params["model"]["emb_dims"], 
     no_of_cont=no_of_cont_features, 
     lin_layer_sizes=params["model"]["lin_layer_sizes"], 
     output_size=no_output_feature, 
     emb_dropout=params["model"]["emb_dropout"], 
     lin_layer_dropouts=params["model"]["lin_layer_dropouts"]
-    )
+  )
 
-# Define an early stop
-early_stop_callback = EarlyStopping(
+  # Define an early stop
+  early_stop_callback = EarlyStopping(
     monitor="val_loss", 
     min_delta=3, 
     patience=5, 
     verbose=True, 
     mode="max"
-)
+  )
 
-# Training the model
-training = pl.Trainer(
+  # Training the model
+  training = pl.Trainer(
     max_epochs= params["epochs"], 
     callbacks=[MyPrintingCallback(), early_stop_callback],
     logger=wandb_logger,
-    )
+   )
 
-training.fit(model, train_dl, val_dl)
+  training.fit(model, train_dl, val_dl)
 
-# We use the model to make prediction on the test data. Aftert that we had the prediction on the test data DataFrame. Then, we will analyze it
-# to improve the model
+  # We use the model to make prediction on the test data. Aftert that we had the prediction on the test data DataFrame. Then, we will analyze it
+  # to improve the model
 
-# Reads the test data
-test_data = pd.read_csv("test_data.csv", index_col=0)
+  # Reads the test data
+  test_data = pd.read_csv("test_data.csv", index_col=0)
 
-# Preprocesses the test_data
-test_data = preprocessing_data(test_data, categorical_features, cont_features, output_feature)
+  # Preprocesses the test_data
+  test_data = preprocessing_data(test_data, categorical_features, cont_features, output_feature)
 
-# Creates dataset and dataloader
-test_dataset = TabularDataset(data=test_data, cat_cols=categorical_features, output_col=output_feature)
-test_dl = DataLoader(test_dataset, shuffle=False, num_workers=2, persistent_workers=True)
+  # Creates dataset and dataloader
+  test_dataset = TabularDataset(data=test_data, cat_cols=categorical_features, output_col=output_feature)
+  test_dl = DataLoader(test_dataset, shuffle=False, num_workers=2, persistent_workers=True)
 
-# Makes predictions
-predicted_delay = training.predict(model, test_dl)
+  # Makes predictions
+  predicted_delay = training.predict(model, test_dl)
 
-# Converts tensor to list and add it to the test_data DataFrame
-predicted_delay_list = [np.array(x)[0][0] for x in predicted_delay]
-test_data['Predicted delay'] = predicted_delay_list
+  # Converts tensor to list and add it to the test_data DataFrame
+  predicted_delay_list = [np.array(x)[0][0] for x in predicted_delay]
+  test_data['Predicted delay'] = predicted_delay_list
 
-# Inverse preprocessing of the data
-test_data = preprocessing_data_inverse(test_data, categorical_features, cont_features, output_feature)
+  # Inverse preprocessing of the data
+  test_data = preprocessing_data_inverse(test_data, categorical_features, cont_features, output_feature)
+  
+if __name__ == '__main__':
+    main()
+
